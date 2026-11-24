@@ -68,6 +68,10 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('STOPPED:',r.stderr)
         self.assertNotIn('Traceback',r.stderr)
 
+    def test_agent_publisher_policy_requires_a_boolean(self):
+        with self.assertRaisesRegex(ValueError,'must be a boolean'):
+            settings.validate({'enforce_default_for_agents':'false'})
+
     def test_duplicate_agent_ids_are_rejected(self):
         with self.assertRaises(ValueError):
             settings.validate({'agents':[{'id':'alice','engine':'Claude'},{'id':'alice','engine':'Codex'}]})

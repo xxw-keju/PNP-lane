@@ -60,6 +60,31 @@ class PublisherPipelineTests(unittest.TestCase):
         self.assertEqual(self.g('show','-s','--format=%an <%ae>|%cn <%ce>',self.state()['commit']),
             'second-user <2+second-user@users.noreply.github.com>|second-user <2+second-user@users.noreply.github.com>')
 
+    def test_agent_cannot_override_enforced_default_before_any_auth_or_job_creation(self):
+        registry(fl.ROOT);accounts.use('second-user',root=fl.ROOT)
+        path=self.root/'blocked-prepare'
+        with patch.dict(settings.CONFIG, enforce_default_for_agents=True), \
+             patch.object(accounts,'auth_env') as auth:
+            with self.assertRaisesRegex(fl.Stop,'user-selected default is second-user'):
+                fl.prepare(argparse.Namespace(agent='pnp',account='lane-test-user',repo=str(self.repo),job=str(path)))
+            auth.assert_not_called()
+        self.assertFalse(path.exists())
+        self.assertEqual(self.state()['account'],'lane-test-user')
+
+    def test_enforced_default_allows_normal_prepare_and_explicit_job_selection(self):
+        registry(fl.ROOT);accounts.use('second-user',root=fl.ROOT)
+        for requested in (None,'second-user'):
+            path=self.root/('default-job' if requested is None else 'matching-job')
+            with patch.dict(settings.CONFIG,enforce_default_for_agents=True), \
+                 patch.object(fl,'fork_url',return_value=str(self.remote)), contextlib.redirect_stdout(io.StringIO()):
+                fl.prepare(argparse.Namespace(repo=str(self.repo),gap_json=str(self.gap),account=requested,
+                    job=str(path),body_file=None,base='upstream/main',remote='origin',agent='pnp'))
+                m=json.loads((path/'job.json').read_text())
+                self.assertEqual(m['account'],'second-user')
+                with patch.object(accounts,'fork_url',return_value=str(self.remote)):
+                    accounts.assign(m['job_id'],'lane-test-user',root=fl.ROOT)
+                self.assertEqual(json.loads((path/'job.json').read_text())['account'],'lane-test-user')
+
     def test_default_change_does_not_reassign_existing_or_ready_jobs(self):
         registry(fl.ROOT)
         j=fl.Job(self.job);j.m['agent']='pnp';j.save()

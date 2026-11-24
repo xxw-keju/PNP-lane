@@ -1,3 +1,7 @@
+# 0.4.2
+
+- Add an opt-in `enforce_default_for_agents` setting that rejects stale explicit publisher overrides during agent preparation. Preserve deliberate per-job selection through the dashboard and account assign.
+
 # 0.4.1
 
 - Restore access through local SSH/editor port forwards when the browser port differs from the server port. Keep loopback-only hosts and exact Origin/Host checks for account mutations.

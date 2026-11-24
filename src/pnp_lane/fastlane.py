@@ -215,7 +215,15 @@ def register_job(path, manifest):
 
 
 def prepare(args):
-    publisher = accounts.selected(getattr(args, 'account', None), ROOT)
+    requested = getattr(args, 'account', None)
+    follow_default = bool(getattr(args, 'agent', None) and
+                          settings.CONFIG.get('enforce_default_for_agents', False))
+    publisher = accounts.selected(None if follow_default else requested, ROOT)
+    if follow_default and requested and accounts.login_name(requested) != publisher['login']:
+        raise Stop('Agent publisher override is disabled by enforce_default_for_agents. '
+                   f'The user-selected default is {publisher["login"]}. Remove --account and '
+                   'follow the dashboard selection. For a user-requested per-job exception, '
+                   'prepare with the default, then use the dashboard or account assign before running.')
     auth = accounts.auth_env(publisher, clean_env())
     repo = Path(args.repo).resolve()
     if Path(git(repo, 'rev-parse', '--show-toplevel')).resolve() != repo:

@@ -17,3 +17,6 @@
 Agent attribution (`--agent`) is independent of the GitHub publisher. `prepare --account LOGIN` selects a registered account; omitting it uses the current default. `account use LOGIN` only changes future jobs. `account assign JOB_ID LOGIN` changes one idle, unpublished job under the worktree/job locks and preserves its proof and valid receipt. A local commit with a previous author is rebuilt.
 
 Publication attempts permanently lock the publisher, including failed or ambiguous push/PR responses. Recovery uses the original account, head and commit. Every job resolves its explicitly named gh user without changing global active authentication or inheriting ambient tokens. Compiler/checker environments do not receive GitHub credential variables.
+
+
+When the deployment enables `enforce_default_for_agents`, omit `--account` in agent prepare calls and follow the current dashboard default. A stale hardcoded account is rejected before any preparation work. Do not invent a persistent fallback account after an authentication failure; repair the credential and retain the user's selection. For a user-requested exception, select the publisher of an idle unpublished job in the dashboard or with `account assign`.

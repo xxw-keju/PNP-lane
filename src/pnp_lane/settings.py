@@ -27,6 +27,8 @@ def validate(config):
         raise ValueError('Invalid author email in config')
     if not str(config.get('feed_url', 'https://data.pequalnp.com/data/desk/gaps.json')).startswith('https://'):
         raise ValueError('feed_url must be HTTPS')
+    if type(config.get('enforce_default_for_agents', False)) is not bool:
+        raise ValueError('enforce_default_for_agents must be a boolean')
     agents = config.get('agents', DEFAULT_AGENTS)
     seen = set()
     for a in agents:

@@ -1,4 +1,4 @@
-# PNP Lane 0.4.1
+# PNP Lane 0.4.2
 
 一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和可选择提交账号的进度网页。
 
@@ -29,7 +29,7 @@ pnp-lane serve
 
 如需放在后台，可在 tmux 中运行 `pnp-lane serve`。端口被当前系统占用时用 `--port 8767`。远程机器请转发相应端口。
 
-如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.4.1-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
+如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.4.2-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
 
 ## 配置和数据
 
@@ -81,6 +81,8 @@ pnp-lane account assign JOB_ID SECOND_LOGIN
 GH_CONFIG_DIR=/path/to/second-gh gh auth login --hostname github.com
 pnp-lane account add SECOND_LOGIN --gh-config-dir /path/to/second-gh
 ```
+
+需要让 agent 严格遵循网页默认账号时，可在本地配置中设置 `"enforce_default_for_agents": true`。此时带 `--agent` 的 prepare 若显式指定不同账号，会在认证、编译和创建作业前停止，并提示移除旧参数。网页或 `account assign` 仍可按使用者要求单独选择未发布作业的账号；已有作业不自动迁移。该选项默认关闭，兼容显式指定账号的现有部署。
 
 不要在网页输入 token。额外账号需要先在本机登录并登记；单靠改用户名无法切换真实提交身份。任务与 PR 数据共用一份，清单会检查所有登记账号的同名分支，看板也会保留旧作业所属账号的历史 PR。
 
@@ -201,7 +203,7 @@ pnp-lane dashboard --port 8766
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 python -m pip install build
 python -m build
-python scripts/make_bundle.py --wheel dist/pnp_lane-0.4.1-py3-none-any.whl --output /path/to/releases
+python scripts/make_bundle.py --wheel dist/pnp_lane-0.4.2-py3-none-any.whl --output /path/to/releases
 ```
 
 测试使用临时真实 Git 仓库和模拟编译器/GitHub，不创建真实 PR。独立安装验证使用空的配置及数据目录。
