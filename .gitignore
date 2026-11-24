@@ -29,3 +29,5 @@ assessments/
 .claude/
 .ssh/
 .config/
+accounts.json
+accounts.lock

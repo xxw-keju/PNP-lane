@@ -10,6 +10,7 @@ import sys
 import time
 
 from . import settings
+from . import accounts
 
 
 def initialize(args):
@@ -47,14 +48,14 @@ def doctor(args):
     for name in ('git', 'gh', 'curl', 'node', 'lake'):
         path = shutil.which(name)
         results.append({'check': name, 'ok': bool(path), 'path': path})
-    results.append({'check': 'configured_identity', 'ok': bool(settings.ACCOUNT and settings.EMAIL)})
+    results.append({'check': 'configured_identity', 'ok': bool(accounts.read()['default'])})
     if args.repo:
         repo = Path(args.repo).expanduser().resolve()
         for name in ('lean/lean-toolchain', 'lean/lakefile.toml', 'tools/bin/lake',
                      'tools/build.sh', 'tools/check-lean.mjs', '.github/scripts/outside-guard.mjs'):
             results.append({'check': name, 'ok': (repo/name).is_file()})
     print(json.dumps({'config': str(settings.CONFIG_PATH), 'state_dir': str(settings.STATE_DIR),
-                      'repository': settings.REPOSITORY, 'account': settings.ACCOUNT or None,
+                      'repository': settings.REPOSITORY, 'account': accounts.read()['default'],
                       'checks': results, 'note': 'Local checks only; this does not compile, fetch, log in or publish.'},
                      ensure_ascii=False, indent=2))
     return 0 if all(r['ok'] for r in results) else 1

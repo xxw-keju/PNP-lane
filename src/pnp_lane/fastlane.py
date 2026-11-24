@@ -24,13 +24,14 @@ from . import inventory
 from . import preflight
 
 from . import settings
+from . import accounts
 
 ROOT = settings.STATE_DIR
 UPSTREAM = settings.REPOSITORY
 ACCOUNT = settings.ACCOUNT
 EMAIL = settings.EMAIL
-# Use gh's existing login for this command only. Fresh worktrees/clones may not
-# have a credential helper; never put a token in argv, logs or Git config.
+# Job-scoped GH_TOKEN selects the registered publisher without changing gh's
+# active login. Never put a token in argv, logs or Git config.
 GITHUB_AUTH = ['-c', 'credential.helper=',
                '-c', 'credential.https://github.com.helper=!gh auth git-credential']
 
@@ -55,7 +56,7 @@ def save(path, data):
 
 def clean_env():
     # Never inherit an alternate index, compiler search path, or queue bypass.
-    return {k: v for k, v in os.environ.items()
+    return {k: v for k, v in accounts.without_credentials().items()
             if not k.startswith(('GIT_', 'LEAN_', 'LAKE_'))
             and k not in ('ELAN_TOOLCHAIN', 'PEQUALNP_IN_QUEUE', 'PEQUALNP_REPO_ROOT')}
 
@@ -84,20 +85,14 @@ def locked(path):
         yield
 
 
-def fork_url(repo, remote):
-    urls = git(repo, 'remote', 'get-url', '--push', '--all', remote).splitlines()
-    allowed = {f'https://github.com/{ACCOUNT}/{settings.REPO_NAME}{suffix}'
-               for suffix in ('', '.git')}
-    allowed |= {f'git@github.com:{ACCOUNT}/{settings.REPO_NAME}.git',
-                f'ssh://git@github.com/{ACCOUNT}/{settings.REPO_NAME}.git'}
-    if len(urls) != 1 or urls[0] not in allowed:
-        raise Stop(f'{remote} must have exactly one push URL, to {ACCOUNT}/{settings.REPO_NAME}')
-    return urls[0]
+def fork_url(account):
+    # Publication does not depend on an agent worktree's origin or active gh user.
+    return accounts.fork_url(account)
 
 
-def remote_sha(m):
-    result = git(m['repo'], 'ls-remote', '--heads', m['push_url'],
-                 'refs/heads/' + m['gap']['id'])
+def remote_sha(m, env=None):
+    result = git(m['repo'], *GITHUB_AUTH, 'ls-remote', '--heads', m['push_url'],
+                 'refs/heads/' + m['gap']['id'], env=env)
     return result.split()[0] if result else None
 
 
@@ -220,8 +215,8 @@ def register_job(path, manifest):
 
 
 def prepare(args):
-    if not ACCOUNT or not EMAIL:
-        raise Stop('Configure identity first: pnp-lane init --from-gh')
+    publisher = accounts.selected(getattr(args, 'account', None), ROOT)
+    auth = accounts.auth_env(publisher, clean_env())
     repo = Path(args.repo).resolve()
     if Path(git(repo, 'rev-parse', '--show-toplevel')).resolve() != repo:
         raise Stop('--repo must name the repository root')
@@ -253,19 +248,20 @@ def prepare(args):
         raise Stop('Store the job outside the proof repository')
     m = {'version': 1, 'job_id': uid, 'repo': str(repo), 'gap': gap,
          'base': git(repo, 'rev-parse', '--verify', args.base + '^{commit}'),
-         'base_branch': 'main', 'upstream': UPSTREAM, 'account': ACCOUNT,
-         'author_name': ACCOUNT, 'author_email': EMAIL,
-         'push_url': fork_url(repo, args.remote), 'state': 'prepared', 'created_at': now()}
+         'base_branch': 'main', 'upstream': UPSTREAM, 'account': publisher['login'],
+         'author_name': publisher['login'], 'author_email': publisher['email'],
+         'publisher_auth': publisher, 'publisher_revision': 0,
+         'push_url': fork_url(publisher['login']), 'state': 'prepared', 'created_at': now()}
     if getattr(args, 'agent', None):
         m['agent'] = args.agent
     if evidence:
         m.update(proposal=evidence, state='proposed')
     unchanged_base(m)
-    if remote_sha(m):
+    if remote_sha(m, auth):
         raise Stop(f'Own remote branch {ident} already exists. Preserve draft and switch tasks.')
-    login = command(['gh', 'api', 'user', '--jq', '.login'], repo)
-    if login != ACCOUNT:
-        raise Stop(f'gh account is {login}; expected {ACCOUNT}')
+    login = command(['gh', 'api', 'user', '--jq', '.login'], repo, env=auth)
+    if login.lower() != publisher['login'].lower():
+        raise Stop('GitHub credential differs from the selected publisher')
     body = Path(args.body_file).read_text() if args.body_file else (
         f'{"Refutation" if gap.get("kind") == "refute" else "Proof"} of the posted statement of {ident}.\n\n'
         'Validation: ordinary Lean compilation passed before submission. '
@@ -306,11 +302,11 @@ def build_commit(job, data):
         index.unlink(missing_ok=True)
 
 
-def find_own_pr(job):
+def find_own_pr(job, auth):
     m = job.m
     output = job.stage('recover_pr', ['gh', 'api', '--method', 'GET',
         f'repos/{m["upstream"]}/pulls', '-f', 'state=all', '-f',
-        f'head={m["account"]}:{m["gap"]["id"]}', '-f', 'base=main', '-f', 'per_page=100'], timeout=90)
+        f'head={m["account"]}:{m["gap"]["id"]}', '-f', 'base=main', '-f', 'per_page=100'], timeout=90, env=auth)
     found = json.loads(output)
     if len(found) > 1:
         raise Stop('Multiple PRs on this head; inspect before proceeding')
@@ -381,7 +377,7 @@ def ready_job(task, agent, source_file):
             record = json.loads(pointer.read_text())
             job = Job(record['path'])
             m = job.m
-            if (m.get('agent') == agent and m['gap']['id'] == task and m['account'] == ACCOUNT
+            if (m.get('agent') == agent and m['gap']['id'] == task
                     and m.get('compilation_receipt', {}).get('source_stamp', [None])[0] == sha
                     and source(m)[1] == m['compilation_receipt']['source_stamp']):
                 candidates.append((m.get('precompiled_at', ''), str(job.path)))
@@ -404,12 +400,16 @@ def run(path, *, compiled_sha=None):
             if m.get('accepted'):
                 print(f'Already locally accepted: {m["pr_url"]}')
                 return
+            auth = accounts.auth_env(accounts.job_record(m, ROOT), clean_env())
+            # Legacy SSH jobs use the same fork over HTTPS to bind Git to this credential.
+            if m['push_url'].startswith(('git@github.com:', 'ssh://git@github.com/')):
+                m['push_url'] = accounts.fork_url(m['account'])
             m['release_started_at'] = now()
             with ThreadPoolExecutor(max_workers=1) as pool:
                 check_env = (pool.submit(preflight.environment, job)
                     if not m.get('commit') and (m.get('compilation_receipt') or compiled_sha) else None)
-                if command(['gh', 'api', 'user', '--jq', '.login'], m['repo']) != m['account']:
-                    raise Stop('Current gh account differs from the account frozen in this job')
+                if command(['gh', 'api', 'user', '--jq', '.login'], m['repo'], env=auth).lower() != m['account'].lower():
+                    raise Stop('Selected gh account differs from the account frozen in this job')
                 if compiled_sha and hashlib.sha256(source(m)[0]).hexdigest() != compiled_sha:
                     raise Stop('--compiled-sha does not match the current proof')
                 if (m.get('proposal') or m.get('compilation_receipt')) and not m.get('pushed'):
@@ -425,7 +425,7 @@ def run(path, *, compiled_sha=None):
                     job.event(stage='compile', event='reused', compiled_at=m['compiled_at'])
                     print('Reusing lane compilation receipt; all frozen inputs match.', flush=True)
                 else:
-                    if remote_sha(m):
+                    if remote_sha(m, auth):
                         raise Stop('Own same-name remote branch exists. Preserve draft and switch tasks.')
                     data = compile_job(job)
                 m['compiled_reused'] = reuse
@@ -434,7 +434,7 @@ def run(path, *, compiled_sha=None):
             job.unchanged()
             if not m.get('pushed'):
                 # Only a retry queries our own branch here, never competition.
-                sha = remote_sha(m) if m.get('push_attempted') else None
+                sha = remote_sha(m, auth) if m.get('push_attempted') else None
                 if sha and sha != m['commit']:
                     raise Stop('Own same-name remote branch now exists with another commit; switch tasks')
                 if not sha:
@@ -446,20 +446,20 @@ def run(path, *, compiled_sha=None):
                     job.stage('push', ['git', '-C', m['repo'], *GITHUB_AUTH, 'push', '--porcelain',
                         '--force-with-lease=' + branch + ':', m['push_url'],
                         m['commit'] + ':' + branch], timeout=120,
-                        env={**clean_env(), 'GIT_TERMINAL_PROMPT': '0'})
+                        env=auth)
                 m['pushed'] = True
                 job.save()
-            elif not m.get('pr_url') and remote_sha(m) != m['commit']:
+            elif not m.get('pr_url') and remote_sha(m, auth) != m['commit']:
                 raise Stop('Published branch changed or disappeared; refusing to create a PR')
 
             if not m.get('pr_url'):
-                url = find_own_pr(job) if m.get('pr_attempted') else None
+                url = find_own_pr(job, auth) if m.get('pr_attempted') else None
                 if not url:
                     m['pr_attempted'] = True
                     job.save()
                     output = job.stage('create_pr', ['gh', 'pr', 'create', '--repo', m['upstream'],
                         '--head', m['account'] + ':' + m['gap']['id'], '--base', 'main',
-                        '--title', m['gap']['id'], '--body-file', job.path / 'body.md'], timeout=120)
+                        '--title', m['gap']['id'], '--body-file', job.path / 'body.md'], timeout=120, env=auth)
                     match = re.search(r'https://github\.com/' + re.escape(m['upstream']) + r'/pull/\d+', output)
                     if not match:
                         raise Stop('PR result lacked a URL; rerun to recover by this job’s own head')
@@ -497,6 +497,7 @@ def main(argv=None):
     subs = parser.add_subparsers(dest='action', required=True)
     p = subs.add_parser('prepare', help='Freeze metadata before final compilation; no push/PR')
     p.add_argument('--repo', required=True)
+    p.add_argument('--account', help='Registered publisher; defaults to the dashboard selection')
     p.add_argument('--agent', choices=[a['id'] for a in settings.AGENTS], help='Agent attribution in the local dashboard')
     source = p.add_mutually_exclusive_group(required=True)
     source.add_argument('--gap-json')
@@ -506,7 +507,7 @@ def main(argv=None):
     p.add_argument('--kind', choices=['check', 'refute'], default='check', help='Provisional proof direction for --proposed')
     p.add_argument('--body-file')
     p.add_argument('--base', default='upstream/main')
-    p.add_argument('--remote', default='origin')
+    p.add_argument('--remote', default='origin', help='Legacy option; publisher determines the HTTPS fork')
     p.add_argument('--job', help='New directory outside repo; default: shared jobs directory')
     for name in ('run', 'status', 'precompile'):
         p = subs.add_parser(name)
@@ -519,7 +520,7 @@ def main(argv=None):
     p.add_argument('--source', required=True)
     inventory.add_arguments(subs)
     inventory.assessments.add_arguments(subs)
-    p = subs.add_parser('dashboard', help='Serve the read-only local progress page')
+    p = subs.add_parser('dashboard', help='Serve local progress and publisher controls')
     p.add_argument('--port', type=int, default=8766)
     args = parser.parse_args(argv)
     try:

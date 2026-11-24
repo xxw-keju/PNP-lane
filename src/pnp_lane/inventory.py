@@ -13,6 +13,7 @@ import time
 from . import assessments
 
 from . import settings
+from . import accounts
 
 ROOT = settings.STATE_DIR / 'catalog'
 FEED_URL = settings.FEED_URL
@@ -61,7 +62,8 @@ def atomic_json(path, value):
 
 def call(args, timeout=90):
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                       env={**os.environ, 'GH_PROMPT_DISABLED': '1', 'GIT_TERMINAL_PROMPT': '0'})
+                       env=(accounts.auth_env(accounts.selected()) if args[0] == 'gh' else
+                            {**accounts.without_credentials(), 'GIT_TERMINAL_PROMPT': '0'}))
     if r.returncode:
         raise CatalogError(f'{args[0]} failed ({r.returncode}): {r.stderr[-1800:]}')
     return r.stdout
@@ -88,11 +90,18 @@ def validate_feed(feed):
 
 
 def fetch_branches():
-    if not settings.ACCOUNT:
-        raise CatalogError('Configure identity first: pnp-lane init --from-gh')
-    result = call(['git', 'ls-remote', '--heads', FORK])
-    return {line.split()[1].removeprefix('refs/heads/'): line.split()[0]
-            for line in result.splitlines() if line.strip()}
+    publishers = accounts.names()
+    if not publishers:
+        raise CatalogError('Register a publisher first: pnp-lane account add LOGIN')
+    # Any registered publisher's same-name branch blocks duplicate work.
+    branches = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(publishers))) as pool:
+        results = pool.map(lambda name: call(['git', '-c', 'credential.helper=',
+            'ls-remote', '--heads', accounts.fork_url(name)]), sorted(publishers))
+        for result in results:
+            branches.update({line.split()[1].removeprefix('refs/heads/'): line.split()[0]
+                for line in result.splitlines() if line.strip()})
+    return branches
 
 
 def fetch_page(cursor):

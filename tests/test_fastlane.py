@@ -24,6 +24,7 @@ with (root / 'calls').open('a') as f:
     f.write(json.dumps([name, args]) + '\\n')
 proof = root / 'repo/lean/PEqualNP/Outside/L_meta_999.lean'
 if name == 'lake':
+    assert 'GH_TOKEN' not in os.environ and 'GITHUB_TOKEN' not in os.environ
     if mode == 'fail_compile': sys.exit(1)
     if mode == 'mutate': proof.write_text(proof.read_text() + '\\n-- changed\\n')
     if mode == 'change_base':
@@ -41,11 +42,15 @@ elif name == 'node':
         if mode == 'fail_check': sys.exit(1)
         if mode != 'false_accept': print('ACCEPTED (check): fixture')
 elif name == 'gh':
-    if args[:2] == ['auth', 'git-credential']:
+    if args[:2] == ['auth', 'token']:
+        assert 'GH_TOKEN' not in os.environ and 'GITHUB_TOKEN' not in os.environ
+        print(args[args.index('--user')+1]+'-credential')
+    elif args[:2] == ['auth', 'git-credential']:
         print('username=lane-test-user\\npassword=fixture-test-password')
     elif args[:2] == ['api', 'user']:
-        print('lane-test-user')
+        print(os.environ['GH_TOKEN'].removesuffix('-credential'))
     elif args[:2] == ['pr', 'create']:
+        assert args[args.index('--head')+1].split(':')[0] == os.environ['GH_TOKEN'].removesuffix('-credential')
         if mode == 'fail_pr': sys.exit(1)
         sha = subprocess.check_output(['git', '--git-dir', str(root / 'remote.git'), 'rev-parse', 'refs/heads/L-meta-999']).decode().strip()
         pr = {'head': {'sha': sha}, 'state': 'open', 'merged_at': None,
@@ -66,6 +71,7 @@ class PipelineTests(unittest.TestCase):
     def setUp(self):
         for name,value in [('ACCOUNT','lane-test-user'),('EMAIL','12345+lane-test-user@users.noreply.github.com')]:
             patched=patch.object(fl,name,value);patched.start();self.addCleanup(patched.stop)
+            patched=patch.object(fl.settings,name,value);patched.start();self.addCleanup(patched.stop)
         self.temp = tempfile.TemporaryDirectory(prefix='fastlane-test-')
         self.root = Path(self.temp.name)
         self.repo, self.remote = self.root / 'repo', self.root / 'remote.git'

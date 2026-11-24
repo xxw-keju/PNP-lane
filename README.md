@@ -1,6 +1,6 @@
-# PNP Lane 0.3.0
+# PNP Lane 0.4.0
 
-一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和只读进度网页。
+一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和可选择提交账号的进度网页。
 
 程序使用 Python 标准库，**没有 Python 运行时依赖**。支持 Linux / WSL；使用 POSIX 文件锁，尚未验证 macOS，不支持原生 Windows。
 
@@ -19,6 +19,8 @@ python -m pip install .
 
 gh auth login
 pnp-lane init --from-gh
+# 先在 GitHub 建立项目 fork，再登记已登录的账号。
+pnp-lane account add YOUR_LOGIN
 pnp-lane doctor --repo /path/to/pequalnp-proofs
 pnp-lane serve
 ```
@@ -27,7 +29,7 @@ pnp-lane serve
 
 如需放在后台，可在 tmux 中运行 `pnp-lane serve`。端口被当前系统占用时用 `--port 8767`。远程机器请转发相应端口。
 
-如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.3.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
+如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.4.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
 
 ## 配置和数据
 
@@ -46,6 +48,41 @@ pnp-lane init --account YOUR_LOGIN --email YOUR_NOREPLY_EMAIL
 完整格式见 [config.example.json](config.example.json)。其中 `account`、`email` 应换成自己的信息。`repository` 和 `feed_url` 默认指向 pequalnp；流水线依赖该项目的目录和检查协议，不是任意 GitHub 仓库的通用发布器。
 
 会话观察是可选功能。为对应 agent 填写 `transcript`，可读取 Codex/Claude 的本地 JSONL；Codex 也可填写顶层 `codex_db` 和 agent 的 `thread`。默认不连接任何现有会话，不包含原机器的会话 id。仅展示公开说明和工具活动，不展示内部推理或原始工具输入。配置中的 agent id 也用于作业和评分归属。
+
+## 选择提交账号
+
+agent 负责证明；GitHub 账号负责 commit、fork 推送及创建 PR。二者独立，同一 agent 可用不同账号提交，不同 agent 也可共用一个账号。
+
+```bash
+# 登录并为每个账号建立项目的同名 fork 后登记；登记只读取凭据，不复制 token。
+pnp-lane account add FIRST_LOGIN
+pnp-lane account add SECOND_LOGIN
+pnp-lane account list
+
+# 默认账号只影响随后 prepare 的新作业。
+pnp-lane account use SECOND_LOGIN
+
+# 指定新作业的账号，优先于默认设置。
+pnp-lane prepare --repo /path/to/worktree --agent pnp2 --account FIRST_LOGIN --task L-meta-XXXX
+
+# 更换一个尚未尝试推送、且当前未运行的作业。JOB_ID 是 status 中的 job_id。
+pnp-lane account assign JOB_ID SECOND_LOGIN
+```
+
+网页的「提交账号」可设置默认账号；「阶段详情」可为尚未发布的作业单独切换。切换会保留证明、agent 归属和有效的预编译记录；已构造但尚未推送的 commit 会按新身份重建。运行中的作业会拒绝切换。只要开始尝试推送，哪怕响应丢失，也锁定账号，恢复时继续使用原身份和分支；已发布 PR 的作者不能通过切换改变。
+
+`account add` 验证登录身份、项目 fork 和写权限，提交作者邮箱自动使用该账号的 GitHub noreply 邮箱。默认设置、登记记录和变更历史保存在数据目录的 `accounts.json`，不写入证明仓库。旧配置的 `account/email` 仅作为首次登记前的兼容默认值；有 registry 后以 registry 为准。
+
+每次发布从本机 `gh` 的凭据库按明确的用户名取凭据，不调用 `gh auth switch`，也不继承外部 `GH_TOKEN/GITHUB_TOKEN`。凭据只传给该作业的 Git/GitHub 子进程，编译和检查进程不继承这些变量。允许多个账号的作业并行。其他脚本自行使用 gh 时的账号不受 lane 控制。
+
+如想完全分离登录目录：
+
+```bash
+GH_CONFIG_DIR=/path/to/second-gh gh auth login --hostname github.com
+pnp-lane account add SECOND_LOGIN --gh-config-dir /path/to/second-gh
+```
+
+不要在网页输入 token。额外账号需要先在本机登录并登记；单靠改用户名无法切换真实提交身份。任务与 PR 数据共用一份，清单会检查所有登记账号的同名分支，看板也会保留旧作业所属账号的历史 PR。
 
 ## 任务清单和难度评估
 
@@ -93,7 +130,7 @@ pnp-lane assess --task L-meta-XXXX --agent pnp2 --retract --reason '先前判断
 
 ## 提交证明
 
-先建立 pequalnp 的 fork 和独立工作目录，配置 `upstream` 为项目仓库、`origin` 为自己的同名 fork，并按官方说明预建 Mathlib。`doctor` 会检查必需的仓库脚本是否存在。
+先建立 pequalnp 的 fork 和独立工作目录，配置 `upstream` 为项目仓库；发布目标由所选账号确定，不依赖工作目录的 `origin`，并按官方说明预建 Mathlib。`doctor` 会检查必需的仓库脚本是否存在。
 
 ```bash
 git fetch upstream main
@@ -108,12 +145,12 @@ pnp-lane status /path/outside/repo/job-XXXX
 
 顺序：格式守卫 → 普通编译 → 单文件提交 → 原子创建分支 → 立即创建 PR → 完整本地验证。
 
-- `prepare --task` 联网核对可选条件并冻结题面、base 和作者身份；兼容 `--gap-json`，但它用于已完成初选的元数据，不应绕过拒绝。
+- `prepare --task` 联网核对可选条件并冻结题面、base，记录当前选定的作者身份；兼容 `--gap-json`，但它用于已完成初选的元数据，不应绕过拒绝。
 - 编译和完整验证调用证明仓库自带的 `tools/bin/lake`、`tools/build.sh` 和 `tools/check-lean.mjs`，沿用官方队列、固定工具链与仓库的构建缓存。包不携带 Lean、Mathlib 或证明仓库。
 - 编译后不查询竞争 PR、不 fetch/rebase。编译期间源码或基线变化会停止发布。
 - 使用 create-only 的空旧值 lease 推送：同名远端分支已存在就停止，绝不覆盖或改名重复提交。
 - 不移动调用者 HEAD，不改真实 Git index；通过临时 index 创建仅新增目标证明文件的 commit。
-- GitHub HTTPS 认证使用当前 `gh` 登录的凭据助手；运行作业时会复核账号与冻结身份一致。
+- GitHub HTTPS 认证使用该作业指定的 `gh` 用户凭据；运行前复核身份，commit 作者和提交者、fork 以及 PR 使用同一账号。
 - PR 正文由 AI 的 `--body-file` 提供，lane 原样提交；未提供时生成固定简短模板。lane 不生成证明思路或文献引用。
 - PR 打印 URL 后仍在运行完整本地检查，退出前不要改变该工作目录。
 - 本地 ACCEPTED 与官方合并是不同状态；网页分别显示，关闭的 PR 不会显示成等待合并。
@@ -156,7 +193,7 @@ pnp-lane dashboard --port 8766
 
 任务源目标间隔 1 秒，PR/己方分支独立 5 秒，官方检查评论 60 秒。使用条件请求；一个来源同时只保留一个请求，慢请求不堆积。来源本身的缓存仍会影响新数据发布时间。首次 PR 历史扫描可能较慢；失败会保留旧快照并明确显示错误。
 
-网页只监听 loopback，提供只读 API，无提交、重试或评分写入接口。agent 通过 CLI 回写评估。记录目录和可选会话文件仅供部署机器读取。
+网页只监听 loopback，进度 API 为只读；写接口仅允许切换已登记的默认账号或尚未发布的作业账号，要求同源请求、CSRF token 和版本核对。无提交、重试、登录或评分写入接口。agent 通过 CLI 回写评估。记录目录和可选会话文件仅供部署机器读取。
 
 ## 测试与打包
 
@@ -164,11 +201,11 @@ pnp-lane dashboard --port 8766
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 python -m pip install build
 python -m build
-python scripts/make_bundle.py --wheel dist/pnp_lane-0.3.0-py3-none-any.whl --output /path/to/releases
+python scripts/make_bundle.py --wheel dist/pnp_lane-0.4.0-py3-none-any.whl --output /path/to/releases
 ```
 
 测试使用临时真实 Git 仓库和模拟编译器/GitHub，不创建真实 PR。独立安装验证使用空的配置及数据目录。
 
-发行包仅含源码、网页、示例配置、文档、测试及 wheel。不包含任何现有运行记录、会话内容、GitHub 登录、token、证明草稿、模型工具或原机器进程信息。原有部署无需迁移或停机；备份与迁移现有数据的边界见 [迁移说明](docs/MIGRATION.md)。
+发行包仅含源码、网页、示例配置、文档、测试及 wheel。不包含任何现有运行记录、会话内容、GitHub 登录、token、证明草稿、模型工具或原机器进程信息。升级时保留配置和数据目录；在途作业仍使用原身份。备份与迁移现有数据的边界见 [迁移说明](docs/MIGRATION.md)。
 
 仓库沿用 [Apache-2.0 许可证](LICENSE)。公开内容与本地数据的边界见 [隐私说明](docs/PRIVACY.md)。

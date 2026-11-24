@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import signal
 import sqlite3
 import subprocess
@@ -20,6 +21,7 @@ from .. import proposals
 
 HERE = Path(__file__).resolve().parent
 from .. import settings
+from .. import accounts
 
 ROOT = settings.STATE_DIR
 ACCOUNT = settings.ACCOUNT
@@ -229,6 +231,8 @@ class Snapshot:
 
     def build(self):
         errors = []
+        publisher_view = accounts.public(self.root)
+        our_accounts = {a['login'] for a in publisher_view['accounts']}
         try:
             catalog = inventory.read_cache(self.root / 'catalog')
             task_rows = inventory.rows(catalog, assessment_root=self.root / 'assessments')
@@ -268,9 +272,16 @@ class Snapshot:
             agent = (j.get('agent') or job_agents.get(path) or
                      next((c['id'] for c in self.config['agents'] if path.parent.name.endswith('-' + c['id'])), None) or
                      next((c['id'] for c in self.config['agents'] if Path(j.get('repo', '')).name == c.get('repo')), None))
-            linked = [p for p in task_prs.get(gap.get('id'), []) if p.get('author') == ACCOUNT]
+            publisher_login = j.get('account') or ACCOUNT
+            if publisher_login:
+                our_accounts.add(publisher_login.lower())
+            linked = [p for p in task_prs.get(gap.get('id'), [])
+                      if (p.get('author') or '').lower() == publisher_login.lower()]
             jobs.append({'id': j.get('job_id', path.parent.name), 'task': gap.get('id'),
                 'weight': gap.get('weight'), 'agent': agent, 'state': j.get('state'),
+                'account': publisher_login, 'publisher_locked': accounts.frozen(j),
+                'publisher_busy': accounts.busy(j, path.parent, self.root),
+                'publisher_revision': j.get('publisher_revision', 0),
                 'created_at': j.get('created_at'), 'updated_at': j.get('updated_at'),
                 'error': redact(j.get('error', '')) if j.get('state') == 'stopped' else '',
                 'historical_error': redact(j.get('error', '')) if j.get('state') != 'stopped' else '',
@@ -285,20 +296,21 @@ class Snapshot:
         feedback = read_json(self.root / 'dashboard/github-feedback.json', {})
         ours = []
         for p in pr_index.values():
-            if p.get('author') != ACCOUNT:
+            if (p.get('author') or '').lower() not in our_accounts:
                 continue
             ids = p.get('task_ids', [])
             ident = ids[0] if ids else None
             peers = task_prs.get(ident, [])
             rank = next((i + 1 for i, x in enumerate(peers) if x['number'] == p['number']), None)
-            same_task_jobs = [j for j in jobs if j['task'] == ident]
+            same_task_jobs = [j for j in jobs if j['task'] == ident
+                              and j['account'].lower() == (p.get('author') or '').lower()]
             publisher = next((j for j in same_task_jobs if j.get('pr_url') == p['url']), None)
             related_job = publisher or (same_task_jobs[0] if len(same_task_jobs) == 1 else None)
             lane_created = publisher is not None
             agent = (publisher or {}).get('agent') or owners.get(str(p['number'])) or (related_job or {}).get('agent')
             verdict = feedback.get('prs', {}).get(str(p['number']), {})
             ours.append({**{k: p.get(k) for k in ('number', 'title', 'state', 'url', 'created_at', 'updated_at', 'merged_at')},
-                'task': ident, 'weight': weights.get(ident), 'agent': agent,
+                'task': ident, 'weight': weights.get(ident), 'agent': agent, 'account': p.get('author'),
                 'rank': rank, 'first_pr': peers[0]['number'] if peers else None,
                 'first_state': peers[0]['state'] if peers else None,
                 'route': 'fastlane' if lane_created else 'fallback' if related_job else 'unrecorded',
@@ -316,7 +328,7 @@ class Snapshot:
             a['adoption'] = sorted(self.sessions[a['id']].adoption)
         events = [e for s in self.sessions.values() for e in s.events]
         for p in ours[:10]:
-            events.append({'at': p['created_at'], 'agent': p['agent'] or ACCOUNT, 'category': 'pr',
+            events.append({'at': p['created_at'], 'agent': p['agent'] or p['account'], 'category': 'pr',
                 'text': f'提交 {p["task"] or "证明"} · PR #{p["number"]}', 'url': p['url']})
         for j in jobs:
             for s in j['stages']:
@@ -341,7 +353,7 @@ class Snapshot:
         proposal_status = read_json(self.root/'catalog/proposal-poll.json', {})
         if proposal_status.get('last_error'):
             errors.append('公开提案刷新失败：' + proposal_status['last_error'])
-        return {'generated_at': inventory.now(), 'account': ACCOUNT, 'repository': settings.REPOSITORY, 'agents': agents, 'jobs': jobs,
+        return {'generated_at': inventory.now(), 'account': publisher_view['default'], 'publishers': publisher_view, 'repository': settings.REPOSITORY, 'agents': agents, 'jobs': jobs,
             'prs': ours, 'tasks': task_view, 'events': events[:25], 'errors': [redact(e) for e in errors],
             'counts': {'total': len(ours), 'open': sum(p['state'] == 'open' for p in ours),
                 'merged': sum(p['state'] == 'merged' for p in ours), 'closed': sum(p['state'] == 'closed' for p in ours),
@@ -382,7 +394,9 @@ def feedback_worker(snapshot, stop):
     while not stop.is_set():
         try:
             catalog = inventory.read_cache(snapshot.root / 'catalog')
-            prs = sorted((p for p in catalog['prs'].values() if p.get('author') == ACCOUNT),
+            our_accounts = accounts.names(snapshot.root)
+            our_accounts.update(j['account'].lower() for j in snapshot.get()['jobs'] if j.get('account'))
+            prs = sorted((p for p in catalog['prs'].values() if (p.get('author') or '').lower() in our_accounts),
                          key=lambda p: p['created_at'], reverse=True)[:100]
             if prs:
                 fields = ' '.join(f'p{int(p["number"])}:pullRequest(number:{int(p["number"])})'
@@ -401,18 +415,22 @@ def feedback_worker(snapshot, stop):
 
 
 def make_handler(snapshot):
+    csrf = secrets.token_urlsafe(32)
     assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
               '/style.css': ('style.css', 'text/css; charset=utf-8')}
     class Handler(BaseHTTPRequestHandler):
+        def valid_host(self):
+            return self.headers.get('Host') in (f'127.0.0.1:{self.server.server_port}',
+                                                 f'localhost:{self.server.server_port}')
+
         def do_GET(self):
-            host = self.headers.get('Host', '').split(':')[0]
-            if host not in ('127.0.0.1', 'localhost'):
+            if not self.valid_host():
                 self.send_error(403)
                 return
             path = urlparse(self.path).path
             if path == '/api/status':
                 try:
-                    payload = json.dumps(snapshot.get(), ensure_ascii=False).encode()
+                    payload = json.dumps({**snapshot.get(), 'csrf': csrf}, ensure_ascii=False).encode()
                     mime = 'application/json; charset=utf-8'
                 except Exception:
                     self.send_error(503, 'Snapshot unavailable')
@@ -434,6 +452,54 @@ def make_handler(snapshot):
                 self.wfile.write(payload)
             except BrokenPipeError:
                 pass
+
+        def json_response(self, status, value):
+            payload = json.dumps(value, ensure_ascii=False).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(payload)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self):
+            if (not self.valid_host() or
+                    self.headers.get('Origin') != 'http://' + self.headers.get('Host', '') or
+                    self.headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin' or
+                    not secrets.compare_digest(self.headers.get('X-Lane-CSRF', ''), csrf)):
+                self.json_response(403, {'error': 'Open the local dashboard to change publisher settings'})
+                return
+            path = urlparse(self.path).path
+            if path not in ('/api/accounts/default', '/api/jobs/account'):
+                self.json_response(404, {'error': 'Unknown endpoint'})
+                return
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 2048 or self.headers.get('Content-Type') != 'application/json':
+                    raise ValueError('Expected a small JSON request')
+                self.connection.settimeout(5)
+                body = json.loads(self.rfile.read(length))
+                keys = {'account', 'revision'} | ({'job_id'} if path == '/api/jobs/account' else set())
+                if not isinstance(body, dict) or set(body) != keys:
+                    raise ValueError('Invalid request fields')
+                if type(body['revision']) is not int or body['revision'] < 0:
+                    raise ValueError('Invalid selection revision')
+                accounts.login_name(body['account'])
+                if path == '/api/accounts/default':
+                    result = accounts.use(body['account'], body['revision'], snapshot.root)
+                else:
+                    result = accounts.assign(body['job_id'], body['account'], body['revision'], snapshot.root)
+                with snapshot.lock:
+                    snapshot.cached = None
+                self.json_response(200, result)
+            except (ValueError, RuntimeError) as e:
+                message = str(e)
+                if 'Another fastlane process' in message:
+                    message = 'Job is running; wait until it stops before switching its publisher'
+                self.json_response(409, {'error': redact(message)})
+            except OSError:
+                self.json_response(409, {'error': 'Registered job unavailable or busy; refresh and retry'})
 
         def log_message(self, *_):
             pass

@@ -1,3 +1,10 @@
+# 0.4.0
+
+- Separate proof agents from GitHub publishers; register multiple local gh users and choose the default in the dashboard or CLI.
+- Allow explicit publisher selection at prepare and reassignment of idle jobs before any publication attempt; retain valid compilation receipts and rebuild unpublished commits with the chosen author.
+- Isolate each job's credentials, fork, commit identity and PR head. Ignore ambient GitHub tokens and avoid global authentication switches; pin attempted publications for safe recovery.
+- Show publisher identities alongside agents, include all registered accounts in branch checks/history, and protect local account controls with origin, CSRF, revision and job-lock checks.
+
 # 0.3.0
 
 - 自动发现尚未上架的公开提案，独立刷新并缓存公开题面。

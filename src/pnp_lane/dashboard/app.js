@@ -1,3 +1,4 @@
+let jobLimit=4;
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeURL = value => /^https:\/\/github\.com\//.test(value || '') ? value : '#';
@@ -51,6 +52,7 @@ function laneResult(j) {
 }
 function renderLane() {
   $('lane-count').textContent=`${data.jobs.length} 个作业 · ${data.counts.lane_published} 次发布`;
+  $('more-jobs').hidden=data.jobs.length<=jobLimit;
   const jobs=[...data.jobs].sort((a,b)=>(b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));const job=jobs[0];
   const steps=[['prepare','准备'],['guard','规则检查'],['compile','普通编译'],['push','安全推送'],['create_pr','创建 PR'],['full_check','完整验证']];
   setHTML('pipeline',`<div class="pipeline">${steps.map(([key,label],i)=>{let status='',duration='待执行';
@@ -58,8 +60,8 @@ function renderLane() {
     if(job && key==='prepare'){status='done';duration='已准备'}
     if(s){status=s.exit_code===0?'done':s.end?'failed':'running';duration=s.seconds!=null?`${s.seconds.toFixed(2)}s`:'进行中'}
     return `<div class="stage ${status}"><div class="stage-circle">${status==='done'?'✓':status==='failed'?'!':i+1}</div><div class="stage-name">${label}</div><div class="stage-time">${duration}</div></div>`}).join('')}</div>`);
-  setHTML('jobs',jobs.length ? jobs.slice(0,4).map(j=>{const r=laneResult(j);return `<div class="job ${r.terminal?'job-finished':j.state==='stopped'?'job-failed':'job-active'}"><div class="job-top"><span class="job-task">${esc(j.task)} <span class="muted">/ ${esc(j.agent||'未归属')}</span></span>${badge(r.label,r.color)}</div>
-    ${r.note?`<p>${esc(r.note)}</p>`:''}<p class="job-local">本地记录：${esc(r.local)}。</p>
+  setHTML('jobs',jobs.length ? jobs.slice(0,jobLimit).map(j=>{const r=laneResult(j);return `<div class="job ${r.terminal?'job-finished':j.state==='stopped'?'job-failed':'job-active'}"><div class="job-top"><span class="job-task">${esc(j.task)} <span class="muted">/ ${esc(j.agent||'未归属')}</span></span>${badge(r.label,r.color)}</div>
+    ${r.note?`<p>${esc(r.note)}</p>`:''}<p class="job-local">提交账号：${esc(j.account||'未指定')} · ${j.publisher_locked?'已锁定':j.publisher_busy?'作业运行中':'可切换'}</p><p class="job-local">本地记录：${esc(r.local)}。</p>
     <div class="job-bottom"><span>${r.pr?`<a class="job-pr" href="${safeURL(r.pr.url)}" target="_blank" rel="noreferrer">PR #${r.pr.number} ↗</a> · `:''}${j.pr_url?'由 fastlane 发布':j.linked_prs.length?'关联 PR 由其他流程发布':'尚无关联 PR'}</span><button class="text-button" data-job="${esc(j.id)}">阶段详情 ↗</button></div></div>`;}).join(''):'<div class="empty">尚无 fastlane 运行记录</div>');
 }
 function renderSources(){const h=data.health;setHTML('watcher-badge',badge(h.watcher_alive?'刷新器运行中':'刷新器未运行',h.watcher_alive?'green':'red'));
@@ -70,9 +72,9 @@ function renderSources(){const h=data.health;setHTML('watcher-badge',badge(h.wat
     ['✓','官方检查评论','独立读取 · 60 秒',h.feedback_checked_at]
   ].map(([icon,label,sub,t])=>`<div class="source-row"><span class="source-icon">${icon}</span><div><strong>${label}</strong><small>${sub}</small></div><div class="source-time">${ago(t)}<small>${clock(t)} UTC</small></div></div>`).join(''));
 }
-function renderPRs(){const query=$('pr-search').value.toLowerCase();const prs=data.prs.filter(p=>(prFilter==='all'||p.state===prFilter)&&`${p.number} ${p.task} ${p.agent} ${p.title}`.toLowerCase().includes(query));$('pr-count').textContent=data.prs.length;$('pr-showing').textContent=`显示 ${Math.min(prLimit,prs.length)} / ${prs.length} 条`;$('more-prs').hidden=prs.length<=prLimit;
+function renderPRs(){const query=$('pr-search').value.toLowerCase();const prs=data.prs.filter(p=>(prFilter==='all'||p.state===prFilter)&&`${p.number} ${p.task} ${p.agent} ${p.account} ${p.title}`.toLowerCase().includes(query));$('pr-count').textContent=data.prs.length;$('pr-showing').textContent=`显示 ${Math.min(prLimit,prs.length)} / ${prs.length} 条`;$('more-prs').hidden=prs.length<=prLimit;
   setHTML('pr-body',prs.length?prs.slice(0,prLimit).map(p=>{const state=states[p.state]||['未知','neutral'];const refused=['REFUSED','REJECTED'].includes(p.verdict);return `<tr><td><a class="pr-title" href="${safeURL(p.url)}" target="_blank" rel="noreferrer">${esc(p.task||'证明提交')} <span class="pr-number">#${p.number}</span></a></td>
-    <td>${esc(p.agent||'未确认归属')}<span class="table-sub">${p.route==='fastlane'?'fastlane 发布':p.route==='fallback'?'其他流程发布':'未记录到 fastlane'}</span></td><td>${p.weight??'—'}</td><td><span class="rank ${p.rank===1?'first':''}">${p.rank?`第 ${p.rank} 个`:'—'}</span></td>
+    <td>${esc(p.agent||'未确认归属')}<span class="table-sub">@${esc(p.account||'—')}</span><span class="table-sub">${p.route==='fastlane'?'fastlane 发布':p.route==='fallback'?'其他流程发布':'未记录到 fastlane'}</span></td><td>${p.weight??'—'}</td><td><span class="rank ${p.rank===1?'first':''}">${p.rank?`第 ${p.rank} 个`:'—'}</span></td>
     <td>${badge(...state)} ${p.verdict?badge(refused?'官方拒绝':p.verdict==='ACCEPTED'?'官方接受':p.verdict,refused?'red':'green'):''}<span class="table-sub" title="${esc(p.reason||'')}">${esc(p.reason?.replace(/^(REFUSED before any build|REJECTED|ACCEPTED):?\s*/, '')|| (p.first_state==='merged'&&p.first_pr!==p.number?'同题已有其他 PR 合并':'暂无已记录的官方结论'))}</span></td>
     <td>${date(p.created_at)}</td><td><button class="text-button" data-pr="${p.number}">详情 ↗</button></td></tr>`}).join(''):'<tr><td colspan="7" class="empty">没有符合筛选条件的 PR</td></tr>');
 }
@@ -119,14 +121,14 @@ function taskDetails(t){
 }
 
 function renderEvents(){setHTML('timeline',data.events.slice(0,12).map(e=>`<div class="timeline-item ${e.category==='pr'?'pr':''}"><span class="timeline-dot"></span><div class="timeline-copy"><div class="timeline-meta"><span>${clock(e.at)}</span><span>${esc(e.agent)}</span></div><p title="${esc(e.text)}">${esc(e.text)}</p></div></div>`).join('')||'<div class="empty">暂无活动</div>');}
-function render(){for(const k of ['total','open','merged','eligible'])$(`metric-${k}`).textContent=data.counts[k];$('updated').textContent=clock(data.generated_at);renderAgents();renderLane();renderSources();renderPRs();renderTasks();renderEvents();renderAlert();}
+function render(){for(const k of ['total','open','merged','eligible'])$(`metric-${k}`).textContent=data.counts[k];$('updated').textContent=clock(data.generated_at);renderPublishers();renderAgents();renderLane();renderSources();renderPRs();renderTasks();renderEvents();renderAlert();}
 function renderAlert(){const errors=disconnected?['无法连接本地服务，当前显示的是上次成功读取的快照。']:[...(data?.errors||[])];if(data?.health.feedback_error)errors.push('官方评论暂未更新：'+data.health.feedback_error);$('alert').textContent=errors.join('\n');$('alert').classList.toggle('hidden',!errors.length);}
 function field(label,value){return `<div class="detail-field"><span>${esc(label)}</span>${esc(value??'—')}</div>`;}
 function show(title,html){$('detail-title').textContent=title;$('detail-body').innerHTML=html;$('detail').showModal();}
 document.addEventListener('click',event=>{const b=event.target.closest('button');if(!b||!data)return;
-  if(b.dataset.pr){const p=data.prs.find(x=>x.number===Number(b.dataset.pr));show(`${p.task} · PR #${p.number}`,field('状态',states[p.state]?.[0])+field('Agent',p.agent||'未确认归属')+field('原始权重',p.weight)+field('提交排名',p.rank?`第 ${p.rank} 个`:'未知')+field('发布时间',date(p.created_at)+' UTC')+`<a class="detail-link" href="${safeURL(p.url)}" target="_blank" rel="noreferrer">在 GitHub 打开 PR ↗</a><p class="detail-paragraph">${esc(p.reason||'尚无已记录的官方检查结论。')}</p>`+(p.verdict_url?`<a class="detail-link" href="${safeURL(p.verdict_url)}" target="_blank" rel="noreferrer">查看官方评论 ↗</a>`:''));}
+  if(b.dataset.pr){const p=data.prs.find(x=>x.number===Number(b.dataset.pr));show(`${p.task} · PR #${p.number}`,field('状态',states[p.state]?.[0])+field('Agent',p.agent||'未确认归属')+field('提交账号',p.account)+field('原始权重',p.weight)+field('提交排名',p.rank?`第 ${p.rank} 个`:'未知')+field('发布时间',date(p.created_at)+' UTC')+`<a class="detail-link" href="${safeURL(p.url)}" target="_blank" rel="noreferrer">在 GitHub 打开 PR ↗</a><p class="detail-paragraph">${esc(p.reason||'尚无已记录的官方检查结论。')}</p>`+(p.verdict_url?`<a class="detail-link" href="${safeURL(p.verdict_url)}" target="_blank" rel="noreferrer">查看官方评论 ↗</a>`:''));}
   if(b.dataset.agent){const a=data.agents.find(x=>x.id===b.dataset.agent);show(`${a.name} · ${a.engine}`,field('活动状态',agentStates[a.state]?.[0])+field('最近活动',date(a.last_activity)+' UTC')+field('设施使用',adoption(a))+`<p class="detail-paragraph">最近工具：${esc(a.last_tool||'无记录')}</p><p class="detail-paragraph">最近公开说明：\n${esc(a.summary||'暂无记录')}</p><p class="muted">空闲状态来自会话结束事件；最近工具和说明可能属于上一轮任务。</p>`);}
-  if(b.dataset.job){const j=data.jobs.find(x=>x.id===b.dataset.job);const r=laneResult(j);show(`${j.task} · 运行记录`,field('执行者',j.agent)+field('当前结果',r.label)+field('本地记录',r.local)+field('作业更新于',date(j.updated_at||j.created_at)+' UTC')+(r.pr?field('PR 更新于',date(r.pr.updated_at)+' UTC')+`<a class="detail-link" href="${safeURL(r.pr.url)}" target="_blank" rel="noreferrer">查看 PR #${r.pr.number} ↗</a>`:'')+`<p class="detail-paragraph">${esc(r.note)}</p><pre class="detail-pre">${esc(j.stages.map(s=>`${s.name.padEnd(13)} ${s.seconds??'—'}s   exit=${s.exit_code??'运行中'}`).join('\n')||'尚未执行编译及提交流水线')}</pre>`+(j.linked_prs.length?`<p class="detail-paragraph">关联 PR：${j.linked_prs.map(p=>`#${p.number}`).join('、')}。${j.pr_url?'由此流水线创建。':'该流水线没有记录成功创建 PR，属于其他发布流程。'}</p>`:''));}
+  if(b.dataset.job){const j=data.jobs.find(x=>x.id===b.dataset.job);const r=laneResult(j);show(`${j.task} · 运行记录`,field('执行者',j.agent)+publisherJobControl(j)+field('当前结果',r.label)+field('本地记录',r.local)+field('作业更新于',date(j.updated_at||j.created_at)+' UTC')+(r.pr?field('PR 更新于',date(r.pr.updated_at)+' UTC')+`<a class="detail-link" href="${safeURL(r.pr.url)}" target="_blank" rel="noreferrer">查看 PR #${r.pr.number} ↗</a>`:'')+`<p class="detail-paragraph">${esc(r.note)}</p><pre class="detail-pre">${esc(j.stages.map(s=>`${s.name.padEnd(13)} ${s.seconds??'—'}s   exit=${s.exit_code??'运行中'}`).join('\n')||'尚未执行编译及提交流水线')}</pre>`+(j.linked_prs.length?`<p class="detail-paragraph">关联 PR：${j.linked_prs.map(p=>`#${p.number}`).join('、')}。${j.pr_url?'由此流水线创建。':'该流水线没有记录成功创建 PR，属于其他发布流程。'}</p>`:''));}
   if(b.dataset.task){const t=data.tasks.find(x=>x.id===b.dataset.task);show(t.id,taskDetails(t));}
   if(b.dataset.taskScope){taskScope=b.dataset.taskScope;taskLimit=10;$('eligible-only').checked=false;$('eligible-only').disabled=taskScope==='proposed';renderTasks();}
 });
@@ -138,3 +140,36 @@ document.querySelectorAll('.nav-link').forEach(a=>a.addEventListener('click',()=
 $('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'继续刷新':'暂停刷新';$('connection-label').textContent=paused?'已暂停':'实时更新';$('connection-dot').classList.toggle('pause-dot',paused);if(!paused)load();});
 async function load(){if(paused||inflight||document.hidden)return;inflight=true;try{const response=await fetch('/api/status',{signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error(response.status);data=await response.json();disconnected=false;$('connection-label').textContent='实时更新';$('connection-dot').classList.remove('connection-error');render();}catch(e){disconnected=true;$('connection-label').textContent='连接中断';$('connection-dot').classList.add('connection-error');renderAlert();}finally{inflight=false;}}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});load();setInterval(load,1000);
+
+function publisherOptions(current){return (data.publishers?.accounts||[]).map(a=>`<option value="${esc(a.login)}" ${a.login===current?'selected':''}>${esc(a.login)}</option>`).join('');}
+function renderPublishers(){
+  const p=data.publishers||{accounts:[],revision:0};
+  $('publisher-count').textContent=`${p.accounts.length} 个账号`;
+  const key=JSON.stringify(p);if($('publisher-controls').dataset.view===key)return;
+  $('publisher-controls').dataset.view=key;
+  setHTML('publisher-controls',p.accounts.length?`<label for="default-publisher">新作业默认账号</label><select id="default-publisher" data-revision="${p.revision}">${publisherOptions(p.default)}</select><button class="subtle" id="save-publisher">设为默认</button><span class="muted">当前：${esc(p.default)}</span>`:'<p class="muted">请在终端登记本机已登录的账号。</p>');
+}
+function publisherJobControl(j){
+  const label=field('提交账号',j.account);
+  if(j.publisher_locked)return label+'<p class="muted">已尝试发布，账号已锁定；重试沿用此账号。</p>';
+  if(j.publisher_busy)return label+'<p class="muted">作业正在运行，结束或停止后可切换尚未发布的作业。</p>';
+  const options=publisherOptions(j.account);
+  if(!options)return label;
+  return label+`<div class="publisher-controls"><label for="job-publisher">更换提交账号</label><select id="job-publisher">${options}</select><button class="subtle" data-save-job-publisher="${esc(j.id)}" data-revision="${j.publisher_revision}">保存</button></div><p class="muted">只更换此作业的发布身份，保留 agent 归属与编译记录。</p><p id="job-publisher-message" role="status"></p>`;
+}
+async function changePublisher(path,body,message){
+  message.textContent='正在保存…';
+  try{
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Lane-CSRF':data.csrf},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
+    const result=await r.json();if(!r.ok)throw Error(result.error||'保存失败');
+    message.textContent='已保存，提交账号：'+body.account;
+    if(path==='/api/jobs/account')document.querySelector('[data-save-job-publisher]')?.setAttribute('disabled','');
+    await load();
+  }catch(e){message.textContent=e.message;}
+}
+document.addEventListener('click',event=>{
+  const b=event.target.closest('button');if(!b||!data)return;
+  if(b.id==='save-publisher'){const s=$('default-publisher');changePublisher('/api/accounts/default',{account:s.value,revision:Number(s.dataset.revision)},$('publisher-message'));}
+  if(b.dataset.saveJobPublisher)changePublisher('/api/jobs/account',{job_id:b.dataset.saveJobPublisher,account:$('job-publisher').value,revision:Number(b.dataset.revision)},$('job-publisher-message'));
+  if(b.id==='more-jobs'){jobLimit+=10;renderLane();}
+});

@@ -96,7 +96,7 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(view['proposal']);self.assertIsNone(view['weight']);self.assertIsNone(view['pr_url'])
             self.assertEqual(view['state'],'precompiled')
 
-    def test_http_is_read_only_and_does_not_serve_arbitrary_files(self):
+    def test_http_does_not_publish_or_serve_arbitrary_files(self):
         class Fake:
             def get(self): return {'counts':{'total':1}}
         server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(Fake()))

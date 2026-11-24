@@ -50,7 +50,8 @@ AGENTS = CONFIG.get('agents', DEFAULT_AGENTS)
 
 
 def require_identity():
-    if not ACCOUNT or not EMAIL:
+    from . import accounts
+    if not accounts.read()['default']:
         raise ValueError('Configure your identity first: pnp-lane init --from-gh (after gh auth login)')
 
 

@@ -5,11 +5,14 @@ import sys
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     try:
+        if argv and argv[0] == 'account':
+            from .accounts import main as account_main
+            return account_main(argv[1:])
         if argv and argv[0] in ('init', 'doctor', 'serve'):
             from .admin import main as admin_main
             return admin_main(argv)
         from .fastlane import main as pipeline_main
         return pipeline_main(argv)
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, RuntimeError) as e:
         print('STOPPED: ' + str(e), file=sys.stderr)
         return 2
