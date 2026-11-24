@@ -56,6 +56,8 @@ elif name == 'gh':
     elif args[:3] == ['api', '--method', 'GET']:
         print('[' + (root / 'pr.json').read_text() + ']' if (root / 'pr.json').exists() else '[]')
     else: raise RuntimeError(args)
+elif name == 'elan':
+    print(root / 'repo/tools/bin/lake')
 else: raise RuntimeError(name)
 '''
 
@@ -70,7 +72,7 @@ class PipelineTests(unittest.TestCase):
         self.repo.mkdir()
         self.bin = self.root / 'bin'
         self.bin.mkdir()
-        for name in ('node', 'gh'):
+        for name in ('node', 'gh', 'elan'):
             self.executable(self.bin / name, FAKE)
         self.executable(self.repo / 'tools/bin/lake', FAKE)
         for name in ('tools/check-lean.mjs', '.github/scripts/outside-guard.mjs',

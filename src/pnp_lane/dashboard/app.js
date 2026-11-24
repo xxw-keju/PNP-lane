@@ -29,10 +29,13 @@ function renderAgents() {
 function laneResult(j) {
   const linked=data.prs.filter(p=>j.linked_prs.some(link=>link.url===p.url));
   const pr=j.pr_url ? data.prs.find(p=>p.url===j.pr_url) : linked.length===1 ? linked[0] : null;
-  const local=j.accepted ? '完整本地验证通过' : j.state==='stopped' ? '本地流水线已中断' : j.state==='prepared' ? '已准备，等待证明就绪' : j.state==='full_check' ? '完整本地验证进行中' : '本地流水线执行中';
-  let label=j.accepted?'本地验证通过':j.state==='stopped'?'运行已中断':j.state==='prepared'?'已准备':'执行中';
+  const waiting={proposed:'提案已登记，等待证明与正式上架',precompiled:'预编译通过，等待发布时核对资格',activated:'上架资格已核对，准备发布'};
+  const local=j.accepted ? '完整本地验证通过' : waiting[j.state] || (j.state==='stopped' ? '本地流水线已中断' : j.state==='prepared' ? '已准备，等待证明就绪' : j.state==='full_check' ? '完整本地验证进行中' : '本地流水线执行中');
+  let label=j.accepted?'本地验证通过':({proposed:'提案预研',precompiled:'预编译通过',activated:'准备发布'}[j.state] || (j.state==='stopped'?'运行已中断':j.state==='prepared'?'已准备':'执行中'));
   let color=j.accepted?'green':j.state==='stopped'?'red':'purple';
   const notes=[];
+  if(j.compiled_reused) notes.push('已复用 lane 预编译记录。');
+  if(j.release_to_pr_seconds!=null) notes.push(`发布阶段 ${j.release_to_pr_seconds.toFixed(2)} 秒。`);
   if(pr) {
     const refused=['REFUSED','REJECTED'].includes(pr.verdict);
     if(pr.state==='merged') { label='PR 已合并';color='purple';notes.push(`PR #${pr.number} 已合并到主分支。`); }

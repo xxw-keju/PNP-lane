@@ -86,6 +86,16 @@ class DashboardTests(unittest.TestCase):
             for j in view['jobs']:
                 self.assertEqual(len(j['linked_prs']),1 if j['agent']=='pnp2' else 0)
 
+    def test_unposted_proposal_is_visible_without_a_fake_weight_or_pr(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'jobs/proposal').mkdir(parents=True)
+            job={'job_id':'proposal','agent':'pnp4','state':'precompiled','proposal':{'url':'https://example.invalid'},
+                 'gap':{'id':'L-meta-999','weight':None},'stages':[]}
+            (root/'jobs/proposal/job.json').write_text(json.dumps(job))
+            view=Snapshot(root,{'agents':[]}).get()['jobs'][0]
+            self.assertTrue(view['proposal']);self.assertIsNone(view['weight']);self.assertIsNone(view['pr_url'])
+            self.assertEqual(view['state'],'precompiled')
+
     def test_http_is_read_only_and_does_not_serve_arbitrary_files(self):
         class Fake:
             def get(self): return {'counts':{'total':1}}

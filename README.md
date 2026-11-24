@@ -1,4 +1,4 @@
-# PNP Lane 0.1.0
+# PNP Lane 0.2.0
 
 一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和只读进度网页。
 
@@ -27,7 +27,7 @@ pnp-lane serve
 
 如需放在后台，可在 tmux 中运行 `pnp-lane serve`。端口被当前系统占用时用 `--port 8767`。远程机器请转发相应端口。
 
-如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.1.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
+如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.2.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
 
 ## 配置和数据
 
@@ -114,6 +114,33 @@ pnp-lane status /path/outside/repo/job-XXXX
 
 同一 job 可恢复推送后创建 PR 的失败，或重新进行完整验证；已关闭 PR 不自动重开。详见 [运行规则](docs/WORKFLOW.md)。
 
+## 提案预研与预编译
+
+公开提案尚未上架时，可以先登记到共享网页，并让 lane 提前编译。使用专属工作目录，保留到发布及完整验证结束。提案源只有数学题面，尚无正式权重及允许 imports；以下 imports 和证明方向是暂定值，正式上架时必须完全一致。
+
+```bash
+pnp-lane prepare --repo /path/to/dedicated-worktree --agent pnp4 \
+  --proposed L-meta-XXXX --imports PEqualNP.Defs --kind check \
+  --job /path/outside/repo/proposed-job --body-file /path/to/pr-body.md
+
+# 在该工作目录的目标文件中写好证明，再预编译；此步不会推送或创建 PR。
+pnp-lane precompile /path/outside/repo/proposed-job
+
+# 上架后发布。run 自动识别并核验已有的 lane 编译记录。
+pnp-lane run /path/outside/repo/proposed-job
+```
+
+- `--proposed` 从公开 head、map 和 lemma 文档读取题面，不领取任务。网页显示“提案预研／预编译通过”；未上架不计入可选任务，也不虚构权重。
+- `--imports` 可重复；refute 方向显式用 `--kind refute`。提案的 `kind=helper` 是分类，不是正式任务的证明方向。
+- 预编译记录有效期 30 分钟，绑定同一 job、工作目录、源码与文件状态、base、题面、imports、方向、编译器、依赖源码和构建缓存。依赖目录的符号链接也会跟踪。编译失败或输入变化不能沿用旧记录。
+- 发布时重新核对正式任务仍开放、权重 > 1、没有同题 PR 或己方分支，以及共享反证评估。仅当完整共享快照中任务与 PR 核对时间都在 2 秒以内且包含此题时复用快照，否则联网更新。快照与 GitHub 操作之间仍可能发生竞争；原子创建分支防止覆盖。
+- 收到正式题面、imports 或方向变化时停止，重新 prepare。源码或环境变化、记录过期时普通 run 会重新编译；base 已改变则重新 prepare。可用 `run JOB --compiled-sha SHA256` 要求必须复用有效记录，无法满足就停止，不能凭该参数跳过验证。
+- 提前编译完成的作业在发布前不占工作目录锁，但它的专属目录应保持不变。不要将草稿复制到另一个 worktree 后沿用原记录。
+- 包装器可用 `pnp-lane ready --task ID --agent pnp4 --source /path/to/proof.lean` 找到相同源码的登记 job，随后直接 run，省去上架后的 fetch、prepare 和复制。ready 只负责查找，发布资格仍由 run 验证。
+- 发布时并行核对身份和编译环境，复用有效记录后直接构造提交并原子推送；完整本地检查仍在创建 PR 后执行。网页单独展示发布阶段耗时，避免把等待上架的时间误算成发布延迟。6–8 秒是目标，实际取决于网络、缓存与资格刷新，不保证达成。
+
+编译记录是同一机器上的完整性检查，不是针对拥有同一账号写权限的恶意进程的认证凭证。不同部署不应复制记录后直接发布。
+
 ## 实时刷新与独立启动
 
 ```bash
@@ -131,7 +158,7 @@ pnp-lane dashboard --port 8766
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 python -m pip install build
 python -m build
-python scripts/make_bundle.py --wheel dist/pnp_lane-0.1.0-py3-none-any.whl --output /path/to/releases
+python scripts/make_bundle.py --wheel dist/pnp_lane-0.2.0-py3-none-any.whl --output /path/to/releases
 ```
 
 测试使用临时真实 Git 仓库和模拟编译器/GitHub，不创建真实 PR。独立安装验证使用空的配置及数据目录。

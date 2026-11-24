@@ -9,3 +9,4 @@
 7. 如果工具失败，保留 job 日志并修复，不静默切回另一套发布流程。PR 创建响应丢失时，同一个 job 会按冻结的 head 找回；不会重复创建。
 8. 本地验证通过不表示 PR 会合并；以官方检查与 GitHub 的 open/closed/merged 状态为准。
 9. 会话通知和任务指令仍由 agent 管理器完成；本包不自带跨会话认证或远程操控功能。
+10. 公开提案可用 `prepare --proposed ID --imports MODULE` 提前登记归属和进展，不互斥占题。准备好的证明用 `precompile JOB` 在专属 worktree 编译。上架后对原 job 运行 `run`，不要再 fetch、复制或重新 prepare 破坏其冻结输入。过期或修改后的记录需要重新编译，发布资格、题面及 imports 以正式任务为准。

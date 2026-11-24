@@ -297,6 +297,28 @@ def rows(catalog, assessment_root=None, sort='difficulty'):
 
 def task_for_prepare(ident):
     catalog = refresh()
+    return eligible_gap(catalog, ident)
+
+
+def task_for_release(ident):
+    # A complete, very recent shared scan can serve all agents. Pending new ids,
+    # stale snapshots and failed refreshes force the normal online refresh.
+    usable = False
+    try:
+        catalog = read_cache()
+        fresh = all(0 <= (instant(now()) - instant(catalog[k])).total_seconds() <= 2
+                    for k in ('task_checked_at', 'pr_checked_at'))
+        if (fresh and ident in catalog.get('pr_checked_task_ids', [])
+                and not (ROOT/'refresh-error.json').exists() and not catalog.get('task_poll_error')):
+            usable = True
+    except (OSError, ValueError, KeyError, CatalogError):
+        pass
+    if usable:
+        return eligible_gap(catalog, ident)
+    return task_for_prepare(ident)
+
+
+def eligible_gap(catalog, ident):
     found = next((r for r in rows(catalog) if r['id'] == ident), None)
     if not found:
         raise CatalogError(f'{ident} is not in the public feed; do not claim a desk lease for this lookup')

@@ -276,6 +276,8 @@ class Snapshot:
                 'pr_url': j.get('pr_url'),
                 'linked_prs': [{'number': p['number'], 'url': p['url']} for p in linked],
                 'accepted': j.get('accepted', False), 'compile_to_pr_seconds': j.get('compile_to_pr_seconds'),
+                'proposal': bool(j.get('proposal')), 'compiled_reused': j.get('compiled_reused', False),
+                'release_to_pr_seconds': j.get('release_to_pr_seconds'),
                 'stages': [{k: s.get(k) for k in ('name', 'start', 'end', 'seconds', 'exit_code')} for s in j.get('stages', [])]})
             if agent in self.sessions and j.get('stages'):
                 self.sessions[agent].adoption.add('run')

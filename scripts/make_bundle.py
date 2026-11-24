@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -21,10 +22,13 @@ def main():
                      not any(part in ('__pycache__','state','jobs','catalog','assessments') or part.endswith('.egg-info') for part in p.relative_to(root).parts[:-1]))
     if not args.wheel.is_file() or args.wheel.suffix!='.whl':
         raise SystemExit('--wheel must name a built wheel')
-    prefix='pnp-lane-0.1.0'
+    version=re.search(r'__version__ = "([0-9.]+)"',(root/'src/pnp_lane/__init__.py').read_text())[1]
+    if not args.wheel.name.startswith('pnp_lane-'+version+'-'):
+        raise SystemExit('Wheel version must match the source version')
+    prefix='pnp-lane-'+version
     contents={str(Path(prefix)/f.relative_to(root)):f.read_bytes() for f in sorted(files)}
     contents[str(Path(prefix)/'wheels'/args.wheel.name)]=args.wheel.read_bytes()
-    manifest={'version':'0.1.0','runtime_data_included':False,'files':{
+    manifest={'version':version,'runtime_data_included':False,'files':{
         k:{'bytes':len(v),'sha256':hashlib.sha256(v).hexdigest()} for k,v in contents.items()}}
     contents[prefix+'/MANIFEST.json']=(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n').encode()
     args.output.mkdir(parents=True,exist_ok=True)
