@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pnp-lane"
-version = "0.4.0"
+version = "0.4.1"
 description = "Local task assessment, proof submission pipeline and progress dashboard for pequalnp"
 readme = "README.md"
 license = {file = "LICENSE"}

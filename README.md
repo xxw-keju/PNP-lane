@@ -1,4 +1,4 @@
-# PNP Lane 0.4.0
+# PNP Lane 0.4.1
 
 一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和可选择提交账号的进度网页。
 
@@ -29,7 +29,7 @@ pnp-lane serve
 
 如需放在后台，可在 tmux 中运行 `pnp-lane serve`。端口被当前系统占用时用 `--port 8767`。远程机器请转发相应端口。
 
-如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.4.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
+如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.4.1-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
 
 ## 配置和数据
 
@@ -201,7 +201,7 @@ pnp-lane dashboard --port 8766
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 python -m pip install build
 python -m build
-python scripts/make_bundle.py --wheel dist/pnp_lane-0.4.0-py3-none-any.whl --output /path/to/releases
+python scripts/make_bundle.py --wheel dist/pnp_lane-0.4.1-py3-none-any.whl --output /path/to/releases
 ```
 
 测试使用临时真实 Git 仓库和模拟编译器/GitHub，不创建真实 PR。独立安装验证使用空的配置及数据目录。

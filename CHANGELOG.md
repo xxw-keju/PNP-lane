@@ -1,3 +1,7 @@
+# 0.4.1
+
+- Restore access through local SSH/editor port forwards when the browser port differs from the server port. Keep loopback-only hosts and exact Origin/Host checks for account mutations.
+
 # 0.4.0
 
 - Separate proof agents from GitHub publishers; register multiple local gh users and choose the default in the dashboard or CLI.

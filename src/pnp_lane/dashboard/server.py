@@ -420,8 +420,11 @@ def make_handler(snapshot):
               '/style.css': ('style.css', 'text/css; charset=utf-8')}
     class Handler(BaseHTTPRequestHandler):
         def valid_host(self):
-            return self.headers.get('Host') in (f'127.0.0.1:{self.server.server_port}',
-                                                 f'localhost:{self.server.server_port}')
+            # A local SSH/editor forward may use a different client-side port.
+            # Keep the loopback host boundary; POST also binds Origin to Host.
+            match = re.fullmatch(r'(?:127\.0\.0\.1|localhost|\[::1\])(?::([0-9]{1,5}))?',
+                                 self.headers.get('Host', ''))
+            return bool(match and (match[1] is None or 1 <= int(match[1]) <= 65535))
 
         def do_GET(self):
             if not self.valid_host():

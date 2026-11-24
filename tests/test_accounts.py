@@ -203,6 +203,23 @@ class AccountApiTests(unittest.TestCase):
         self.assertEqual(code,409)
         self.assertEqual(accounts.read(self.root)['revision'],0)
 
+    def test_forwarded_loopback_ports_work_but_origin_must_match(self):
+        for host in ('localhost:18766', '127.0.0.1:18766', '[::1]:18766', 'localhost'):
+            with self.subTest(host=host):
+                with self.local.open(urllib.request.Request(self.base+'/api/status',headers={'Host':host})) as r:
+                    self.assertEqual(r.status,200)
+        for host in ('evil.example:18766','localhost.evil.example:18766','localhost:99999',
+                     'localhost:0','localhost@evil.example:18766','localhost:18766/path'):
+            with self.subTest(host=host),self.assertRaises(urllib.error.HTTPError) as error:
+                self.local.open(urllib.request.Request(self.base+'/api/status',headers={'Host':host}))
+            self.assertEqual(error.exception.code,403)
+        body={'account':'second-user','revision':0}
+        code,_=self.post('/api/accounts/default',body,{'Host':'localhost:18766','Origin':'http://localhost:18766'})
+        self.assertEqual(code,200)
+        code,_=self.post('/api/accounts/default',{**body,'revision':1},
+                         {'Host':'localhost:18766','Origin':'http://localhost:8766'})
+        self.assertEqual(code,403)
+
     def test_job_switch_and_post_attempt_lock(self):
         ident='a'*32;job=self.root/'jobs'/ident;job.mkdir(parents=True)
         manifest={'job_id':ident,'repo':str(self.root/'repo'),'agent':'pnp3','account':'lane-test-user',
