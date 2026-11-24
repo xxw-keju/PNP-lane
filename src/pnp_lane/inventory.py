@@ -341,6 +341,9 @@ def add_arguments(subs):
     p.add_argument('--min-weight', type=float, default=0)
     p.add_argument('--task', help='One exact task id, including checked/withdrawn tasks')
     p.add_argument('--all-states', action='store_true', help='Include checked, paused and withdrawn tasks')
+    scope = p.add_mutually_exclusive_group()
+    scope.add_argument('--proposed', action='store_true', help='Public proposals not on the desk; research only')
+    scope.add_argument('--include-proposed', action='store_true', help='Include public unposted proposals')
     p.add_argument('--limit', type=int, default=40, help='Rows to print; 0 means all')
     p.add_argument('--json', action='store_true', help='Machine-readable report; includes full gap metadata')
     p.add_argument('--export', help='With --task, export its live gap metadata for prepare --gap-json')
@@ -351,8 +354,13 @@ def add_arguments(subs):
 
 def report(args, catalog):
     all_rows = rows(catalog, sort=getattr(args, 'sort', 'difficulty'))
+    include_proposed = getattr(args, 'include_proposed', False) or getattr(args, 'proposed', False)
+    if include_proposed or args.task:
+        from . import proposals
+        all_rows += proposals.rows(ROOT.parent, catalog)
     filtered = [r for r in all_rows if (r['id'] == args.task if args.task else
-                (args.all_states or r['task_state'] == 'open'))]
+                (r['task_state'] == 'proposed' if getattr(args, 'proposed', False) else
+                 args.all_states or r['task_state'] == 'open' or include_proposed and r['task_state'] == 'proposed'))]
     if args.task and not filtered:
         raise CatalogError('Task is absent from this public snapshot: ' + args.task)
     filtered = [r for r in filtered if (r['weight'] or 0) >= args.min_weight
@@ -381,6 +389,7 @@ def report(args, catalog):
         'task_poll_error': catalog.get('task_poll_error'),
         'cache_age_seconds': round((instant(now()) - instant(catalog['refreshed_at'])).total_seconds(), 1),
         'counts': {'open_tasks': sum(r['task_state'] == 'open' for r in all_rows),
+                   'proposed_tasks': sum(r['task_state'] == 'proposed' for r in all_rows),
                    'eligible_tasks': sum(r['eligible'] for r in all_rows),
                    'indexed_prs': len(catalog['prs']), 'matching': len(filtered), 'shown': len(visible)},
         'sort': getattr(args, 'sort', 'difficulty'), 'unrated_sort_rank': 3,
@@ -426,7 +435,11 @@ def handle(args):
     if args.watch is not None and (args.watch < 1 or args.pr_interval < 1 or args.export):
         raise CatalogError('--watch/--pr-interval must be at least 1 second and cannot export repeatedly')
     def once():
-        report(args, read_cache() if args.cached else refresh(full=args.full_refresh))
+        catalog = read_cache() if args.cached else refresh(full=args.full_refresh)
+        if not args.cached and (getattr(args, 'proposed', False) or getattr(args, 'include_proposed', False)):
+            from .proposals import ProposalPoller
+            ProposalPoller(ROOT).poll()
+        report(args, catalog)
     if not args.watch:
         once()
         return

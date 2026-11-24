@@ -16,6 +16,7 @@ import time
 from urllib.parse import urlparse
 
 from .. import inventory
+from .. import proposals
 
 HERE = Path(__file__).resolve().parent
 from .. import settings
@@ -330,20 +331,29 @@ class Snapshot:
             errors.append('PR/分支刷新失败：' + refresh_error.get('error', '未知错误'))
         if poll.get('last_error'):
             errors.append('任务查询失败：' + poll['last_error'])
-        task_view = [{k: r.get(k) for k in ('id', 'weight', 'title', 'kind', 'eligible', 'own_branch',
+        task_view = [{k: r.get(k) for k in ('id', 'weight', 'title', 'kind', 'task_state', 'eligible', 'own_branch',
                     'pr_check_pending', 'pr_count', 'open_prs', 'merged_prs', 'closed_prs', 'has_pr',
                     'difficulty', 'feasibility', 'assessment')}
                      for r in task_rows if r['task_state'] == 'open']
+        listed_count = len(task_view)
+        proposed = proposals.rows(self.root, catalog, jobs)
+        task_view.extend(proposed)
+        proposal_status = read_json(self.root/'catalog/proposal-poll.json', {})
+        if proposal_status.get('last_error'):
+            errors.append('公开提案刷新失败：' + proposal_status['last_error'])
         return {'generated_at': inventory.now(), 'account': ACCOUNT, 'repository': settings.REPOSITORY, 'agents': agents, 'jobs': jobs,
             'prs': ours, 'tasks': task_view, 'events': events[:25], 'errors': [redact(e) for e in errors],
             'counts': {'total': len(ours), 'open': sum(p['state'] == 'open' for p in ours),
                 'merged': sum(p['state'] == 'merged' for p in ours), 'closed': sum(p['state'] == 'closed' for p in ours),
                 'eligible': sum(t['eligible'] for t in task_view), 'tasks': len(task_view),
+                'listed': listed_count, 'proposed': len(proposed),
                 'lane_runs': len(jobs), 'lane_published': sum(bool(j['pr_url']) for j in jobs)},
             'health': {'watcher_alive': running_pid(watcher.get('pid')), 'task_interval': watcher.get('task_interval'),
                 'pr_interval': watcher.get('pr_interval'), 'task_checked_at': catalog.get('task_checked_at'),
                 'pr_checked_at': catalog.get('pr_checked_at', catalog['refreshed_at']),
                 'source_updated_at': catalog['feed'].get('updated_at'), 'poll_requests': poll.get('requests'),
+                'proposal_checked_at': proposal_status.get('success_at'),
+                'proposal_details_pending': proposal_status.get('details_pending'),
                 'not_modified': poll.get('not_modified'), 'feedback_checked_at': feedback.get('checked_at'),
                 'feedback_error': feedback.get('error')}}
 

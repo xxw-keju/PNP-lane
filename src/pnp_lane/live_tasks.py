@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from . import inventory as inv
+from .proposals import ProposalPoller
 
 
 class FeedPoller:
@@ -102,6 +103,7 @@ def watch(args):
                   'conditional_get': True, 'non_overlapping': True}
         inv.atomic_json(root / 'watcher.json', config)
         poller, task_slot, pr_slot = FeedPoller(root), Slot(args.watch), Slot(args.pr_interval)
+        proposal_poller, proposal_slot = ProposalPoller(root), Slot(args.watch)
         def prs():
             # Reuse the task worker's validated snapshot; do not download the
             # entire task feed again for every independent GitHub refresh.
@@ -110,9 +112,9 @@ def watch(args):
             return inv.refresh(full=args.full_refresh, feed_override=data)
         last_report = None
         try:
-            with ThreadPoolExecutor(max_workers=2) as pool:
+            with ThreadPoolExecutor(max_workers=3) as pool:
                 while not stop.is_set():
-                    for name, slot in (('tasks', task_slot), ('prs', pr_slot)):
+                    for name, slot in (('tasks', task_slot), ('prs', pr_slot), ('proposals', proposal_slot)):
                         if slot.future is not None and slot.future.done():
                             try:
                                 result = slot.future.result()
@@ -130,6 +132,7 @@ def watch(args):
                     current = time.monotonic()
                     task_slot.submit_if_due(pool, poller.poll, current)
                     pr_slot.submit_if_due(pool, prs, current)
+                    proposal_slot.submit_if_due(pool, proposal_poller.poll, current)
                     stop.wait(0.02)
         finally:
             (root / 'watcher.json').unlink(missing_ok=True)

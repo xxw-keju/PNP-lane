@@ -8,3 +8,5 @@
 .job-active{background:#fbfcff;border-color:#eceef7}.job-active p{color:#8891a8}
 .job-finished{background:#f8f9fc;border-color:var(--line)}.job-finished p{color:#778097}.job-top{flex-wrap:wrap;gap:8px}.job p.job-local{color:var(--muted)}.job-pr{color:var(--accent)}.job-pr:hover{text-decoration:underline}
 .task-controls{flex-wrap:wrap}.task-controls select{font:inherit;font-size:10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--muted);padding:6px;max-width:100%}.task-difficulty{display:inline-block;margin-left:5px;font-size:9px;font-weight:400;color:var(--muted)}.task-reviewers{font-size:9px;color:var(--muted);margin-top:4px}.assessment-history{font-size:12px;margin-top:16px}.assessment-history summary{cursor:pointer}.assessment-entry{border-top:1px solid var(--line);padding:14px 0;margin-top:10px}.assessment-entry small{display:block;color:var(--muted);margin-top:5px}.assessment-entry p{margin:6px 0}
+
+.task-scopes{flex-wrap:wrap;gap:8px}.task-scopes .tabs{flex-wrap:wrap}.task-scopes .tabs button{white-space:nowrap}
