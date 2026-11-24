@@ -1,0 +1,4 @@
+include README.md CHANGELOG.md LICENSE config.example.json
+recursive-include docs *.md
+recursive-include tests *.py
+recursive-include scripts *.py

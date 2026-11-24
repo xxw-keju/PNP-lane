@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pnp-lane"
+version = "0.1.0"
+description = "Local task assessment, proof submission pipeline and progress dashboard for pequalnp"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = []
+classifiers = ["Programming Language :: Python :: 3", "Operating System :: POSIX :: Linux"]
+
+[project.scripts]
+pnp-lane = "pnp_lane.cli:main"
+pnp-fastlane = "pnp_lane.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"pnp_lane.dashboard" = ["*.html", "*.css", "*.js"]

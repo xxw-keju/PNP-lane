@@ -1,0 +1,141 @@
+# PNP Lane 0.1.0
+
+一个可本地部署的 pequalnp 协作工具：实时任务/PR 清单、agent 难度评估、证明提交流水线和只读进度网页。
+
+程序使用 Python 标准库，**没有 Python 运行时依赖**。支持 Linux / WSL；使用 POSIX 文件锁，尚未验证 macOS，不支持原生 Windows。
+
+## 安装与启动
+
+需要 Python 3.10+、Git、GitHub CLI (`gh`)、curl、Node.js，以及项目要求的 elan/Lean/Lake。Lean 和 Mathlib 使用证明仓库锁定的版本。
+
+从本仓库安装：
+
+```bash
+git clone https://github.com/xxw-keju/PNP-lane.git
+cd PNP-lane
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+
+gh auth login
+pnp-lane init --from-gh
+pnp-lane doctor --repo /path/to/pequalnp-proofs
+pnp-lane serve
+```
+
+打开 **http://127.0.0.1:8766**。`serve` 同时启动任务刷新器和网页，Ctrl-C 停止本次启动的两个进程。它只读任务与 PR，不会选题占用 desk、编译或提交证明。
+
+如需放在后台，可在 tmux 中运行 `pnp-lane serve`。端口被当前系统占用时用 `--port 8767`。远程机器请转发相应端口。
+
+如使用完整 ZIP 包，解压后也可用 `python -m pip install ./wheels/pnp_lane-0.1.0-py3-none-any.whl` 安装。兼容原命令名 `pnp-fastlane`；两者指向同一入口。
+
+## 配置和数据
+
+`init --from-gh` 读取当前 GitHub 登录的账号和 id，生成该账号的 GitHub noreply 邮箱，不复制 token。也可显式配置：
+
+```bash
+pnp-lane init --account YOUR_LOGIN --email YOUR_NOREPLY_EMAIL
+```
+
+- 默认配置：`~/.config/pnp-lane/config.json`，或 `$XDG_CONFIG_HOME/pnp-lane/config.json`。
+- 默认数据：`~/.local/state/pnp-lane/`，或 `$XDG_STATE_HOME/pnp-lane/`。
+- `PNP_LANE_CONFIG` 可指定独立配置文件；`PNP_LANE_STATE_DIR` 可指定独立数据目录，优先于配置中的 `state_dir`。
+- 程序安装目录只保存代码和网页资源。缓存、作业、评分及服务日志都写入数据目录。
+- 多个 agent 使用同一份配置及数据目录即可协作；不同部署使用不同目录，避免重复刷新。
+
+完整格式见 [config.example.json](config.example.json)。其中 `account`、`email` 应换成自己的信息。`repository` 和 `feed_url` 默认指向 pequalnp；流水线依赖该项目的目录和检查协议，不是任意 GitHub 仓库的通用发布器。
+
+会话观察是可选功能。为对应 agent 填写 `transcript`，可读取 Codex/Claude 的本地 JSONL；Codex 也可填写顶层 `codex_db` 和 agent 的 `thread`。默认不连接任何现有会话，不包含原机器的会话 id。仅展示公开说明和工具活动，不展示内部推理或原始工具输入。配置中的 agent id 也用于作业和评分归属。
+
+## 任务清单和难度评估
+
+```bash
+# 默认联网更新；筛选无任何状态 PR、无己方分支、权重大于 1 的题。
+pnp-lane tasks --eligible --limit 0
+pnp-lane tasks --cached --eligible --json
+pnp-lane tasks --task L-meta-969
+pnp-lane tasks --eligible --max-difficulty 2
+pnp-lane tasks --sort weight
+```
+
+默认先按难度升序，同分按权重降序。难度定义：
+
+| 分数 | 含义 |
+|---|---|
+| 1 | 直接可证明 |
+| 2 | 可以证明 |
+| 3 | 需要一点难度 |
+| 4 | 需要很长枚举 |
+| 5 | 开放问题 |
+
+未评分单独标注，暂按 3 档排序。不同 agent 的有效评分暂取最高分，并标明分歧。分数仅是评估，不改变官方权重。
+
+```bash
+pnp-lane assess --task L-meta-XXXX --agent pnp2 --difficulty 2 \
+  --feasibility viable --reason '已有可复用引理，剩余有限验证' --minutes 20
+
+pnp-lane assess --task L-meta-969 --agent pnp2 --feasibility refuted \
+  --evidence-task L-meta-970 --reason '同一模型已验证的下界为12，目标要求至多11门'
+
+pnp-lane assessments --task L-meta-969
+pnp-lane assess --task L-meta-XXXX --agent pnp2 --retract --reason '先前判断不再适用'
+```
+
+`unknown` 是尚无结论，`viable` 是有具体路线，`blocked` 是当前受阻，`refuted` 是有反证依据。搜索超时只记 `blocked`。反证报告必须引用官方 checked 中的另一题并说明矛盾；一般逻辑蕴含仍由报告者核对，界面会标明是 agent 判断。完整题面的直接否定可自动识别。
+
+每次评估独立保存，带作者、时间、题面指纹、依据和历史。新记录只更新自己的当前意见；题面或依据改变后旧记录失效。反证或相互冲突的可行/反证报告会暂时排除初选；高难度本身仅影响排序。
+
+## 提交证明
+
+先建立 pequalnp 的 fork 和独立工作目录，配置 `upstream` 为项目仓库、`origin` 为自己的同名 fork，并按官方说明预建 Mathlib。`doctor` 会检查必需的仓库脚本是否存在。
+
+```bash
+git fetch upstream main
+# 选择自己的独立工作目录后准备题面。job 必须是仓库外的新目录。
+pnp-lane prepare --repo /path/to/worktree --agent pnp2 --task L-meta-XXXX \
+  --job /path/outside/repo/job-XXXX --body-file /path/to/pr-body.md
+
+# 写好证明后，这个命令负责最终普通编译及后续步骤。
+pnp-lane run /path/outside/repo/job-XXXX
+pnp-lane status /path/outside/repo/job-XXXX
+```
+
+顺序：格式守卫 → 普通编译 → 单文件提交 → 原子创建分支 → 立即创建 PR → 完整本地验证。
+
+- `prepare --task` 联网核对可选条件并冻结题面、base 和作者身份；兼容 `--gap-json`，但它用于已完成初选的元数据，不应绕过拒绝。
+- 编译和完整验证调用证明仓库自带的 `tools/bin/lake`、`tools/build.sh` 和 `tools/check-lean.mjs`，沿用官方队列、固定工具链与仓库的构建缓存。包不携带 Lean、Mathlib 或证明仓库。
+- 编译后不查询竞争 PR、不 fetch/rebase。编译期间源码或基线变化会停止发布。
+- 使用 create-only 的空旧值 lease 推送：同名远端分支已存在就停止，绝不覆盖或改名重复提交。
+- 不移动调用者 HEAD，不改真实 Git index；通过临时 index 创建仅新增目标证明文件的 commit。
+- GitHub HTTPS 认证使用当前 `gh` 登录的凭据助手；运行作业时会复核账号与冻结身份一致。
+- PR 正文由 AI 的 `--body-file` 提供，lane 原样提交；未提供时生成固定简短模板。lane 不生成证明思路或文献引用。
+- PR 打印 URL 后仍在运行完整本地检查，退出前不要改变该工作目录。
+- 本地 ACCEPTED 与官方合并是不同状态；网页分别显示，关闭的 PR 不会显示成等待合并。
+
+同一 job 可恢复推送后创建 PR 的失败，或重新进行完整验证；已关闭 PR 不自动重开。详见 [运行规则](docs/WORKFLOW.md)。
+
+## 实时刷新与独立启动
+
+```bash
+pnp-lane tasks --watch 1 --pr-interval 5 --eligible --limit 0
+pnp-lane dashboard --port 8766
+```
+
+任务源目标间隔 1 秒，PR/己方分支独立 5 秒，官方检查评论 60 秒。使用条件请求；一个来源同时只保留一个请求，慢请求不堆积。来源本身的缓存仍会影响新数据发布时间。首次 PR 历史扫描可能较慢；失败会保留旧快照并明确显示错误。
+
+网页只监听 loopback，提供只读 API，无提交、重试或评分写入接口。agent 通过 CLI 回写评估。记录目录和可选会话文件仅供部署机器读取。
+
+## 测试与打包
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
+python -m pip install build
+python -m build
+python scripts/make_bundle.py --wheel dist/pnp_lane-0.1.0-py3-none-any.whl --output /path/to/releases
+```
+
+测试使用临时真实 Git 仓库和模拟编译器/GitHub，不创建真实 PR。独立安装验证使用空的配置及数据目录。
+
+发行包仅含源码、网页、示例配置、文档、测试及 wheel。不包含任何现有运行记录、会话内容、GitHub 登录、token、证明草稿、模型工具或原机器进程信息。原有部署无需迁移或停机；备份与迁移现有数据的边界见 [迁移说明](docs/MIGRATION.md)。
+
+仓库沿用 [Apache-2.0 许可证](LICENSE)。公开内容与本地数据的边界见 [隐私说明](docs/PRIVACY.md)。
